@@ -19,10 +19,16 @@
 #include <pthread.h>
 
 #define MAX_STRING 100
+#define MAX_FILENAME 1024
 #define EXP_TABLE_SIZE 1000
 #define MAX_EXP 6
 #define MAX_SENTENCE_LENGTH 1000
 #define MAX_CODE_LENGTH 40
+
+// macOS / BSD libc have no fgetc_unlocked; getc_unlocked is the POSIX equivalent
+#ifndef __GLIBC__
+#define fgetc_unlocked getc_unlocked
+#endif
 
 const int vocab_hash_size = 30000000;  // Maximum 30 * 0.7 = 21M words in the vocabulary
 
@@ -34,8 +40,8 @@ struct vocab_word {
   char *word, *code, codelen;
 };
 
-char train_file[MAX_STRING], output_file[MAX_STRING];
-char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
+char train_file[MAX_FILENAME], output_file[MAX_FILENAME];
+char save_vocab_file[MAX_FILENAME], read_vocab_file[MAX_FILENAME];
 struct vocab_word *vocab;
 int binary = 0, cbow = 1, debug_mode = 2, window = 5, min_count = 5, num_threads = 12, min_reduce = 1;
 int *vocab_hash;
@@ -185,7 +191,8 @@ void SortVocab() {
 void ReduceVocab() {
   int a, b = 0;
   unsigned int hash;
-  for (a = 0; a < vocab_size; a++) if (vocab[a].cn > min_reduce) {
+  // Always keep </s> at index 0
+  for (a = 0; a < vocab_size; a++) if ((vocab[a].cn > min_reduce) || (a == 0)) {
     vocab[b].cn = vocab[a].cn;
     vocab[b].word = vocab[a].word;
     b++;
@@ -310,12 +317,16 @@ void LearnVocabFromTrainFile() {
 void SaveVocab() {
   long long i;
   FILE *fo = fopen(save_vocab_file, "wb");
+  if (fo == NULL) {
+    printf("ERROR: cannot open vocabulary file %s for writing\n", save_vocab_file);
+    exit(1);
+  }
   for (i = 0; i < vocab_size; i++) fprintf(fo, "%s %lld\n", vocab[i].word, vocab[i].cn);
   fclose(fo);
 }
 
 void ReadVocab() {
-  long long a, i = 0;
+  long long a;
   char c, eof = 0;
   char word[MAX_STRING];
   FILE *fin = fopen(read_vocab_file, "rb");
@@ -330,8 +341,8 @@ void ReadVocab() {
     if (eof) break;
     a = AddWordToVocab(word);
     fscanf(fin, "%lld%c", &vocab[a].cn, &c);
-    i++;
   }
+  fclose(fin);
   SortVocab();
   if (debug_mode > 0) {
     printf("Vocab size: %lld\n", vocab_size);
@@ -382,6 +393,10 @@ void *TrainModelThread(void *id) {
   real *neu1 = (real *)calloc(layer1_size, sizeof(real));
   real *neu1e = (real *)calloc(layer1_size, sizeof(real));
   FILE *fi = fopen(train_file, "rb");
+  if (fi == NULL) {
+    printf("ERROR: training data file not found!\n");
+    exit(1);
+  }
   fseek(fi, file_size / (long long)num_threads * (long long)id, SEEK_SET);
   while (1) {
     if (word_count - last_word_count > 10000) {
@@ -557,7 +572,9 @@ void *TrainModelThread(void *id) {
 void TrainModel() {
   long a, b, c, d;
   FILE *fo;
-  pthread_t *pt = (pthread_t *)malloc(num_threads * sizeof(pthread_t));
+  pthread_t *pt;
+  if (num_threads < 1) num_threads = 1;
+  pt = (pthread_t *)malloc(num_threads * sizeof(pthread_t));
   printf("Starting training using file %s\n", train_file);
   starting_alpha = alpha;
   if (read_vocab_file[0] != 0) ReadVocab(); else LearnVocabFromTrainFile();
@@ -569,6 +586,10 @@ void TrainModel() {
   for (a = 0; a < num_threads; a++) pthread_create(&pt[a], NULL, TrainModelThread, (void *)a);
   for (a = 0; a < num_threads; a++) pthread_join(pt[a], NULL);
   fo = fopen(output_file, "wb");
+  if (fo == NULL) {
+    printf("ERROR: cannot open output file %s for writing\n", output_file);
+    exit(1);
+  }
   if (classes == 0) {
     // Save the word vectors
     fprintf(fo, "%lld %lld\n", vocab_size, layer1_size);
@@ -637,6 +658,15 @@ int ArgPos(char *str, int argc, char **argv) {
   return -1;
 }
 
+// Copies a file name argument, refusing names that do not fit the buffer
+void CopyFileName(char *dst, char *src) {
+  if (strlen(src) >= MAX_FILENAME) {
+    printf("ERROR: file name too long (max %d characters): %s\n", MAX_FILENAME - 1, src);
+    exit(1);
+  }
+  strcpy(dst, src);
+}
+
 int main(int argc, char **argv) {
   int i;
   if (argc == 1) {
@@ -686,15 +716,15 @@ int main(int argc, char **argv) {
   save_vocab_file[0] = 0;
   read_vocab_file[0] = 0;
   if ((i = ArgPos((char *)"-size", argc, argv)) > 0) layer1_size = atoi(argv[i + 1]);
-  if ((i = ArgPos((char *)"-train", argc, argv)) > 0) strcpy(train_file, argv[i + 1]);
-  if ((i = ArgPos((char *)"-save-vocab", argc, argv)) > 0) strcpy(save_vocab_file, argv[i + 1]);
-  if ((i = ArgPos((char *)"-read-vocab", argc, argv)) > 0) strcpy(read_vocab_file, argv[i + 1]);
+  if ((i = ArgPos((char *)"-train", argc, argv)) > 0) CopyFileName(train_file, argv[i + 1]);
+  if ((i = ArgPos((char *)"-save-vocab", argc, argv)) > 0) CopyFileName(save_vocab_file, argv[i + 1]);
+  if ((i = ArgPos((char *)"-read-vocab", argc, argv)) > 0) CopyFileName(read_vocab_file, argv[i + 1]);
   if ((i = ArgPos((char *)"-debug", argc, argv)) > 0) debug_mode = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-binary", argc, argv)) > 0) binary = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-cbow", argc, argv)) > 0) cbow = atoi(argv[i + 1]);
   if (cbow) alpha = 0.05;
   if ((i = ArgPos((char *)"-alpha", argc, argv)) > 0) alpha = atof(argv[i + 1]);
-  if ((i = ArgPos((char *)"-output", argc, argv)) > 0) strcpy(output_file, argv[i + 1]);
+  if ((i = ArgPos((char *)"-output", argc, argv)) > 0) CopyFileName(output_file, argv[i + 1]);
   if ((i = ArgPos((char *)"-window", argc, argv)) > 0) window = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-sample", argc, argv)) > 0) sample = atof(argv[i + 1]);
   if ((i = ArgPos((char *)"-hs", argc, argv)) > 0) hs = atoi(argv[i + 1]);

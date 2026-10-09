@@ -19,6 +19,13 @@
 #include <pthread.h>
 
 #define MAX_STRING 60
+#define MAX_FILENAME 1024
+
+// macOS / BSD libc have no fgetc_unlocked / fputc_unlocked; the getc / putc variants are the POSIX equivalents
+#ifndef __GLIBC__
+#define fgetc_unlocked getc_unlocked
+#define fputc_unlocked putc_unlocked
+#endif
 
 const int vocab_hash_size = 500000000; // Maximum 500M entries in the vocabulary
 
@@ -29,7 +36,7 @@ struct vocab_word {
   char *word;
 };
 
-char train_file[MAX_STRING], output_file[MAX_STRING];
+char train_file[MAX_FILENAME], output_file[MAX_FILENAME];
 struct vocab_word *vocab;
 int debug_mode = 2, min_count = 5, *vocab_hash, min_reduce = 1;
 long long vocab_max_size = 10000, vocab_size = 0;
@@ -118,21 +125,25 @@ int AddWordToVocab(char *word) {
 
 // Used later for sorting by word counts
 int VocabCompare(const void *a, const void *b) {
-    return ((struct vocab_word *)b)->cn - ((struct vocab_word *)a)->cn;
+  long long l = ((struct vocab_word *)b)->cn - ((struct vocab_word *)a)->cn;
+  if (l > 0) return 1;
+  if (l < 0) return -1;
+  return 0;
 }
 
 // Sorts the vocabulary by frequency using word counts
 void SortVocab() {
-  int a;
+  int a, size;
   unsigned int hash;
   // Sort the vocabulary and keep </s> at the first position
   qsort(&vocab[1], vocab_size - 1, sizeof(struct vocab_word), VocabCompare);
   for (a = 0; a < vocab_hash_size; a++) vocab_hash[a] = -1;
-  for (a = 0; a < vocab_size; a++) {
+  size = vocab_size;
+  for (a = 0; a < size; a++) {
     // Words occuring less than min_count times will be discarded from the vocab
-    if (vocab[a].cn < min_count) {
+    if ((vocab[a].cn < min_count) && (a != 0)) {
       vocab_size--;
-      free(vocab[vocab_size].word);
+      free(vocab[a].word);
     } else {
       // Hash will be re-computed, as after the sorting it is not actual
       hash = GetWordHash(vocab[a].word);
@@ -147,7 +158,8 @@ void SortVocab() {
 void ReduceVocab() {
   int a, b = 0;
   unsigned int hash;
-  for (a = 0; a < vocab_size; a++) if (vocab[a].cn > min_reduce) {
+  // Always keep </s> at index 0
+  for (a = 0; a < vocab_size; a++) if ((vocab[a].cn > min_reduce) || (a == 0)) {
     vocab[b].cn = vocab[a].cn;
     vocab[b].word = vocab[a].word;
     b++;
@@ -182,7 +194,7 @@ void LearnVocabFromTrainFile() {
     if (word[0] == '\n') {
       start = 1;
       continue;
-    } else start = 0;
+    }
     train_words++;
     if ((debug_mode > 1) && (train_words % 1000000 == 0)) {
       printf("Words processed: %lldM     Vocab size: %lldK  %c", train_words / 1000000, vocab_size / 1000, 13);
@@ -193,7 +205,12 @@ void LearnVocabFromTrainFile() {
       a = AddWordToVocab(word);
       vocab[a].cn = 1;
     } else vocab[i].cn++;
-    if (start) continue;
+    if (start) {
+      // First word of a line: there is no bigram ending here
+      start = 0;
+      strcpy(last_word, word);
+      continue;
+    }
     //sprintf(bigram_word, "%s_%s", last_word, word);
     a = 0;
     b = 0;
@@ -238,7 +255,15 @@ void TrainModel() {
   printf("Starting training using file %s\n", train_file);
   LearnVocabFromTrainFile();
   fin = fopen(train_file, "rb");
+  if (fin == NULL) {
+    printf("ERROR: training data file not found!\n");
+    exit(1);
+  }
   fo = fopen(output_file, "wb");
+  if (fo == NULL) {
+    printf("ERROR: cannot open output file %s for writing\n", output_file);
+    exit(1);
+  }
   word[0] = 0;
   while (1) {
     strcpy(last_word, word);
@@ -312,6 +337,15 @@ int ArgPos(char *str, int argc, char **argv) {
   return -1;
 }
 
+// Copies a file name argument, refusing names that do not fit the buffer
+void CopyFileName(char *dst, char *src) {
+  if (strlen(src) >= MAX_FILENAME) {
+    printf("ERROR: file name too long (max %d characters): %s\n", MAX_FILENAME - 1, src);
+    exit(1);
+  }
+  strcpy(dst, src);
+}
+
 int main(int argc, char **argv) {
   int i;
   if (argc == 1) {
@@ -332,9 +366,9 @@ int main(int argc, char **argv) {
     printf("./word2phrase -train text.txt -output phrases.txt -threshold 100 -debug 2\n\n");
     return 0;
   }
-  if ((i = ArgPos((char *)"-train", argc, argv)) > 0) strcpy(train_file, argv[i + 1]);
+  if ((i = ArgPos((char *)"-train", argc, argv)) > 0) CopyFileName(train_file, argv[i + 1]);
   if ((i = ArgPos((char *)"-debug", argc, argv)) > 0) debug_mode = atoi(argv[i + 1]);
-  if ((i = ArgPos((char *)"-output", argc, argv)) > 0) strcpy(output_file, argv[i + 1]);
+  if ((i = ArgPos((char *)"-output", argc, argv)) > 0) CopyFileName(output_file, argv[i + 1]);
   if ((i = ArgPos((char *)"-min-count", argc, argv)) > 0) min_count = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-threshold", argc, argv)) > 0) threshold = atof(argv[i + 1]);
   vocab = (struct vocab_word *)calloc(vocab_max_size, sizeof(struct vocab_word));

@@ -1,0 +1,10 @@
+# Training data and trained models (large, downloaded/generated)
+text8
+vectors.bin
+
+# Compiled binaries
+word2vec
+word2phrase
+distance
+word-analogy
+compute-accuracy

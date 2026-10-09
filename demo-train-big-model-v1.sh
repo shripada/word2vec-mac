@@ -16,29 +16,34 @@ normalize_text() {
   -e 's/«/ /g' | tr 0-9 " "
 }
 
-mkdir word2vec
-cd word2vec
+# Build the tools from this repository, then work in a separate data directory
+# (it must not be called "word2vec": that name is taken by the binary)
+set -e
+make
+TOOLS=`pwd`
+mkdir -p big-model-data
+cd big-model-data
 
-wget http://www.statmt.org/wmt14/training-monolingual-news-crawl/news.2012.en.shuffled.gz
-wget http://www.statmt.org/wmt14/training-monolingual-news-crawl/news.2013.en.shuffled.gz
+curl -L -O http://www.statmt.org/wmt14/training-monolingual-news-crawl/news.2012.en.shuffled.gz
+curl -L -O http://www.statmt.org/wmt14/training-monolingual-news-crawl/news.2013.en.shuffled.gz
 gzip -d news.2012.en.shuffled.gz
 gzip -d news.2013.en.shuffled.gz
 normalize_text < news.2012.en.shuffled > data.txt
 normalize_text < news.2013.en.shuffled >> data.txt
 
-wget http://www.statmt.org/lm-benchmark/1-billion-word-language-modeling-benchmark-r13output.tar.gz
+curl -L -O http://www.statmt.org/lm-benchmark/1-billion-word-language-modeling-benchmark-r13output.tar.gz
 tar -xvf 1-billion-word-language-modeling-benchmark-r13output.tar.gz
 for i in `ls 1-billion-word-language-modeling-benchmark-r13output/training-monolingual.tokenized.shuffled`; do
   normalize_text < 1-billion-word-language-modeling-benchmark-r13output/training-monolingual.tokenized.shuffled/$i >> data.txt
 done
 
-wget http://ebiquity.umbc.edu/redirect/to/resource/id/351/UMBC-webbase-corpus
-tar -zxvf umbc_webbase_corpus.tar.gz webbase_all/*.txt
+curl -L -o umbc_webbase_corpus.tar.gz http://ebiquity.umbc.edu/redirect/to/resource/id/351/UMBC-webbase-corpus
+tar -zxvf umbc_webbase_corpus.tar.gz
 for i in `ls webbase_all`; do
   normalize_text < webbase_all/$i >> data.txt
 done
 
-wget http://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles.xml.bz2
+curl -L -O https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles.xml.bz2
 bzip2 -c -d enwiki-latest-pages-articles.xml.bz2 | awk '{print tolower($0);}' | perl -e '
 # Program to filter Wikipedia XML dumps to "clean" text consisting only of lowercase
 # letters (a-z, converted from A-Z), and spaces (never consecutive)...
@@ -85,16 +90,8 @@ while (<>) {
 }
 ' | normalize_text | awk '{if (NF>1) print;}' >> data.txt
 
-wget http://word2vec.googlecode.com/svn/trunk/word2vec.c
-wget http://word2vec.googlecode.com/svn/trunk/word2phrase.c
-wget http://word2vec.googlecode.com/svn/trunk/compute-accuracy.c
-wget http://word2vec.googlecode.com/svn/trunk/questions-words.txt
-wget http://word2vec.googlecode.com/svn/trunk/questions-phrases.txt
-gcc word2vec.c -o word2vec -lm -pthread -O3 -march=native -funroll-loops
-gcc word2phrase.c -o word2phrase -lm -pthread -O3 -march=native -funroll-loops
-gcc compute-accuracy.c -o compute-accuracy -lm -pthread -O3 -march=native -funroll-loops
-./word2phrase -train data.txt -output data-phrase.txt -threshold 200 -debug 2
-./word2phrase -train data-phrase.txt -output data-phrase2.txt -threshold 100 -debug 2
-./word2vec -train data-phrase2.txt -output vectors.bin -cbow 1 -size 500 -window 10 -negative 10 -hs 0 -sample 1e-5 -threads 40 -binary 1 -iter 3 -min-count 10
-./compute-accuracy vectors.bin 400000 < questions-words.txt     # should get to almost 78% accuracy on 99.7% of questions
-./compute-accuracy vectors.bin 1000000 < questions-phrases.txt  # about 78% accuracy with 77% coverage
+$TOOLS/word2phrase -train data.txt -output data-phrase.txt -threshold 200 -debug 2
+$TOOLS/word2phrase -train data-phrase.txt -output data-phrase2.txt -threshold 100 -debug 2
+$TOOLS/word2vec -train data-phrase2.txt -output vectors.bin -cbow 1 -size 500 -window 10 -negative 10 -hs 0 -sample 1e-5 -threads 40 -binary 1 -iter 3 -min-count 10
+$TOOLS/compute-accuracy vectors.bin 400000 < $TOOLS/questions-words.txt     # should get to almost 78% accuracy on 99.7% of questions
+$TOOLS/compute-accuracy vectors.bin 1000000 < $TOOLS/questions-phrases.txt  # about 78% accuracy with 77% coverage

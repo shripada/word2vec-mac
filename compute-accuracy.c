@@ -19,9 +19,9 @@
 #include <stdlib.h>
 #include <ctype.h>
 
-const long long max_size = 2000;         // max length of strings
-const long long N = 1;                   // number of closest words
-const long long max_w = 50;              // max length of vocabulary entries
+#define max_size 2000                    // max length of strings
+#define N 1                              // number of closest words
+#define max_w 50                         // max length of vocabulary entries
 
 int main(int argc, char **argv)
 {
@@ -46,6 +46,10 @@ int main(int argc, char **argv)
   fscanf(f, "%lld", &words);
   if (threshold) if (words > threshold) words = threshold;
   fscanf(f, "%lld", &size);
+  if ((size < 1) || (size > max_size)) {
+    printf("Unsupported vector size %lld (max %d)\n", size, max_size);
+    return -1;
+  }
   vocab = (char *)malloc(words * max_w * sizeof(char));
   M = (float *)malloc(words * size * sizeof(float));
   if (M == NULL) {
@@ -57,7 +61,7 @@ int main(int argc, char **argv)
     while (1) {
       vocab[b * max_w + a] = fgetc(f);
       if (feof(f) || (vocab[b * max_w + a] == ' ')) break;
-      if ((a < max_w) && (vocab[b * max_w + a] != '\n')) a++;
+      if ((a < max_w - 1) && (vocab[b * max_w + a] != '\n')) a++;
     }
     vocab[b * max_w + a] = 0;
     for (a = 0; a < max_w; a++) vocab[b * max_w + a] = toupper(vocab[b * max_w + a]);
@@ -72,7 +76,7 @@ int main(int argc, char **argv)
   while (1) {
     for (a = 0; a < N; a++) bestd[a] = 0;
     for (a = 0; a < N; a++) bestw[a][0] = 0;
-    scanf("%s", st1);
+    scanf("%1999s", st1);
     for (a = 0; a < strlen(st1); a++) st1[a] = toupper(st1[a]);
     if ((!strcmp(st1, ":")) || (!strcmp(st1, "EXIT")) || feof(stdin)) {
       if (TCN == 0) TCN = 1;
@@ -81,7 +85,7 @@ int main(int argc, char **argv)
         printf("Total accuracy: %.2f %%   Semantic accuracy: %.2f %%   Syntactic accuracy: %.2f %% \n", CACN / (float)TACN * 100, SEAC / (float)SECN * 100, SYAC / (float)SYCN * 100);
       }
       QID++;
-      scanf("%s", st1);
+      scanf("%1999s", st1);
       if (feof(stdin)) break;
       printf("%s:\n", st1);
       TCN = 0;
@@ -89,11 +93,11 @@ int main(int argc, char **argv)
       continue;
     }
     if (!strcmp(st1, "EXIT")) break;
-    scanf("%s", st2);
+    scanf("%1999s", st2);
     for (a = 0; a < strlen(st2); a++) st2[a] = toupper(st2[a]);
-    scanf("%s", st3);
+    scanf("%1999s", st3);
     for (a = 0; a<strlen(st3); a++) st3[a] = toupper(st3[a]);
-    scanf("%s", st4);
+    scanf("%1999s", st4);
     for (a = 0; a < strlen(st4); a++) st4[a] = toupper(st4[a]);
     for (b = 0; b < words; b++) if (!strcmp(&vocab[b * max_w], st1)) break;
     b1 = b;

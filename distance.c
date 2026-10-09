@@ -17,9 +17,9 @@
 #include <math.h>
 #include <stdlib.h>
 
-const long long max_size = 2000;         // max length of strings
-const long long N = 40;                  // number of closest words that will be shown
-const long long max_w = 50;              // max length of vocabulary entries
+#define max_size 2000                    // max length of strings
+#define N 40                             // number of closest words that will be shown
+#define max_w 50                         // max length of vocabulary entries
 
 int main(int argc, char **argv) {
   FILE *f;
@@ -28,6 +28,7 @@ int main(int argc, char **argv) {
   char file_name[max_size], st[100][max_size];
   float dist, len, bestd[N], vec[max_size];
   long long words, size, a, b, c, d, cn, bi[100];
+  int ch;
   float *M;
   char *vocab;
   if (argc < 2) {
@@ -42,6 +43,10 @@ int main(int argc, char **argv) {
   }
   fscanf(f, "%lld", &words);
   fscanf(f, "%lld", &size);
+  if ((size < 1) || (size > max_size)) {
+    printf("Unsupported vector size %lld (max %d)\n", size, max_size);
+    return -1;
+  }
   vocab = (char *)malloc((long long)words * max_w * sizeof(char));
   for (a = 0; a < N; a++) bestw[a] = (char *)malloc(max_size * sizeof(char));
   M = (float *)malloc((long long)words * (long long)size * sizeof(float));
@@ -54,7 +59,7 @@ int main(int argc, char **argv) {
     while (1) {
       vocab[b * max_w + a] = fgetc(f);
       if (feof(f) || (vocab[b * max_w + a] == ' ')) break;
-      if ((a < max_w) && (vocab[b * max_w + a] != '\n')) a++;
+      if ((a < max_w - 1) && (vocab[b * max_w + a] != '\n')) a++;
     }
     vocab[b * max_w + a] = 0;
     for (a = 0; a < size; a++) fread(&M[a + b * size], sizeof(float), 1, f);
@@ -70,7 +75,13 @@ int main(int argc, char **argv) {
     printf("Enter word or sentence (EXIT to break): ");
     a = 0;
     while (1) {
-      st1[a] = fgetc(stdin);
+      ch = fgetc(stdin);
+      if (ch == EOF) {
+        if (a == 0) strcpy(st1, "EXIT");  // end of input with nothing pending: quit
+        else st1[a] = 0;
+        break;
+      }
+      st1[a] = ch;
       if ((st1[a] == '\n') || (a >= max_size - 1)) {
         st1[a] = 0;
         break;
@@ -88,6 +99,7 @@ int main(int argc, char **argv) {
       st[cn][b] = 0;
       if (st1[c] == 0) break;
       if (st1[c] == ' ') {
+        if (cn >= 99) break;  // st[] and bi[] hold at most 100 words
         cn++;
         b = 0;
         c++;
