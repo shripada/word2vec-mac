@@ -18,9 +18,9 @@ Its README is kept as [`README.txt`](README.txt).
 
 ```sh
 make
-curl -L -o text8.zip http://mattmahoney.net/dc/text8.zip && unzip -o text8.zip && rm text8.zip
+curl -L -o text8.zip http://mattmahoney.net/dc/text8.zip && unzip -o text8.zip && rm text8.zip # test data
 ./word2vec -train text8 -output vectors.bin -cbow 1 -size 200 -window 8 -negative 25 \
-           -hs 0 -sample 1e-4 -threads 8 -binary 1 -iter 15
+           -hs 0 -sample 1e-4 -threads 8 -binary 1 -iter 15 # train
 ./distance vectors.bin            # nearest words, e.g. "king"
 ./word-analogy vectors.bin        # analogies, e.g. "paris france berlin"
 ```
